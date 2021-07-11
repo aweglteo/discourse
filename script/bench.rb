@@ -15,7 +15,7 @@ require "fileutils"
 @dump_heap = false
 @concurrency = 1
 @skip_asset_bundle = false
-@unicorn_workers = 3
+@workers = 3
 
 opts = OptionParser.new do |o|
   o.banner = "Usage: ruby bench.rb [options]"
@@ -46,8 +46,8 @@ opts = OptionParser.new do |o|
   o.on("-c", "--concurrency [NUM]", "Run benchmark with this number of concurrent requests (default: 1)") do |i|
     @concurrency = i.to_i
   end
-  o.on("-w", "--unicorn_workers [NUM]", "Run benchmark with this number of unicorn workers (default: 3)") do |i|
-    @unicorn_workers = i.to_i
+  o.on("-w", "--workers [NUM]", "Run benchmark with this number of workers (default: 3)") do |i|
+    @workers = i.to_i
   end
   o.on("-s", "--skip-bundle-assets", "Skip bundling assets") do
     @skip_asset_bundle = true
@@ -212,11 +212,11 @@ begin
   pid =
     if @unicorn
       ENV['UNICORN_PORT'] = @port.to_s
-      ENV['UNICORN_WORKERS'] = @unicorn_workers.to_s
+      ENV['UNICORN_WORKERS'] = @workers.to_s
       FileUtils.mkdir_p(File.join('tmp', 'pids'))
       spawn("bundle exec unicorn -c config/unicorn.conf.rb")
     else
-      spawn("bundle exec puma -p #{@port} -e production")
+      spawn("bundle exec puma -p #{@port} -w #{@workers} -e production")
     end
 
   while port_available? @port
@@ -273,10 +273,9 @@ begin
   puts "Your Results: (note for timings- percentile is first, duration is second in millisecs)"
 
   if @unicorn
-    puts "Unicorn: (workers: #{@unicorn_workers})"
+    puts "Unicorn: (workers: #{@workers})"
   else
-    # TODO we want to also bench puma clusters
-    puts "Puma: (single threaded)"
+    puts "Puma: (single threaded, workers: #{@workers})"
   end
   puts "Include env: #{@include_env}"
   puts "Iterations: #{@iterations}, Best of: #{@best_of}"
@@ -307,13 +306,13 @@ begin
                           "rss_kb" => mem["rss_kb"],
                           "pss_kb" => mem["pss_kb"]).merge(facts)
 
-  if @unicorn
-    child_pids = `ps --ppid #{pid} | awk '{ print $1; }' | grep -v PID`.split("\n")
-    child_pids.each do |child|
-      mem = get_mem(child)
-      results["rss_kb_#{child}"] = mem["rss_kb"]
-      results["pss_kb_#{child}"] = mem["pss_kb"]
-    end
+
+  child_pids = `ps --ppid #{pid} | awk '{ print $1; }' | grep -v PID`.split("\n")
+
+  child_pids.each do |child|
+    mem = get_mem(child)
+    results["rss_kb_#{child}"] = mem["rss_kb"]
+    results["pss_kb_#{child}"] = mem["pss_kb"]
   end
 
   puts results.to_yaml
